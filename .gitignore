@@ -1,0 +1,23 @@
+# Virtual Environment
+.venv/
+venv/
+ENV/
+
+# Python Caches & Bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# IDE Configuration
+.idea/
+.vscode/
+
+# Local Data Artifacts
+*.csv
+*.npz
+*.h5
+*.pkl
+data/
+
+# Environment Variables
+*.env
