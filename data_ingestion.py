@@ -21,11 +21,148 @@ device = torch.device(
     else "cpu"
 )
 # ================================
-# === Extraction & Fetching ===
+# === 1 (Extraction & Fetching) AI -  ===
+class PeMSExtractor:
+    """Handles raw data ingestion from PeMS benchmark files (.npz, .h5) and Caltrans station metadata CSV files."""
 
+    def __init__(self, data_path: str, metadata_path: str):
+        """Initializes the extractor with input file paths.
+
+        Args:
+            data_path: Path to the raw time-series data file (.npz or .h5).
+            metadata_path: Path to the raw Caltrans station metadata CSV file.
+        """
+        self.data_path = data_path
+        self.metadata_path = metadata_path
+
+    def load_raw_benchmark_data(self) -> Dict[str, np.ndarray]:
+        """Loads raw PeMS benchmark time-series speed/volume matrices and sensor IDs.
+
+        Handles both NumPy archive (.npz) and HDF5 (.h5) binary formats.
+
+        Returns:
+            Dict[str, np.ndarray]: Dictionary containing:
+                - 'data': Raw speed/volume array (T, N) or (T, N, F).
+                - 'sensor_ids': Array of raw sensor ID strings/integers.
+
+        Raises:
+            FileNotFoundError: If the benchmark file is missing.
+            ValueError: If the file format is unsupported or necessary keys are absent.
+        """
+        if not os.path.exists(self.data_path):
+            logger.error(f"Data file not found at path: {self.data_path}")
+            raise FileNotFoundError(f"File not found: {self.data_path}")
+
+        logger.info(f"Loading raw PeMS benchmark file from: {self.data_path}")
+
+        try:
+            if self.data_path.endswith(".npz"):
+                with np.load(self.data_path, allow_pickle=True) as raw_archive:
+                    keys = list(raw_archive.keys())
+                    logger.info(f"Successfully opened .npz archive. Found keys: {keys}")
+
+                    # Standard PeMS keys are 'data' or 'data'/'ids'
+                    if "data" in raw_archive:
+                        data = raw_archive["data"]
+                    else:
+                        data = raw_archive[keys[0]]
+
+                    sensor_ids = (
+                        raw_archive["ids"]
+                        if "ids" in raw_archive
+                        else raw_archive["sensor_ids"] if "sensor_ids" in raw_archive
+                        else np.arange(data.shape[1])
+                    )
+
+            elif self.data_path.endswith(".h5") or self.data_path.endswith(".hdf5"):
+                with h5py.File(self.data_path, "r") as raw_h5:
+                    keys = list(raw_h5.keys())
+                    logger.info(f"Successfully opened .h5 file. Found keys: {keys}")
+
+                    # Look up primary dataset inside HDF5 hierarchy
+                    if "df" in raw_h5:
+                        data = raw_h5["df"]["block0_values"][:]
+                        sensor_ids = raw_h5["df"]["axis0"][:]
+                    elif "data" in raw_h5:
+                        data = raw_h5["data"][:]
+                        sensor_ids = raw_h5["ids"][:] if "ids" in raw_h5 else np.arange(data.shape[1])
+                    else:
+                        data = raw_h5[keys[0]][:]
+                        sensor_ids = np.arange(data.shape[1])
+
+            else:
+                raise ValueError("Unsupported file format. Only '.npz' and '.h5' / '.hdf5' files are supported.")
+
+            logger.info(f"Raw data matrix loaded successfully. Shape: {data.shape}")
+            logger.info(f"Extracted {len(sensor_ids)} sensor IDs.")
+
+            return {
+                "data": data,
+                "sensor_ids": np.array(sensor_ids)
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to read benchmark file {self.data_path}: {str(e)}")
+            raise
+
+    def load_raw_station_metadata(self) -> pd.DataFrame:
+        """Fetches and parses the raw Caltrans Station Metadata CSV file into a DataFrame.
+
+        Returns:
+            pd.DataFrame: Unmodified, uncleaned raw station metadata DataFrame.
+
+        Raises:
+            FileNotFoundError: If the metadata CSV file is missing.
+            pd.errors.EmptyDataError: If the CSV file is empty.
+        """
+        if not os.path.exists(self.metadata_path):
+            logger.error(f"Metadata file not found at path: {self.metadata_path}")
+            raise FileNotFoundError(f"File not found: {self.metadata_path}")
+
+        logger.info(f"Loading raw Caltrans station metadata CSV from: {self.metadata_path}")
+
+        try:
+            # Load raw CSV without dropping missing values or modifying types
+            metadata_df = pd.read_csv(self.metadata_path, sep=None, engine="python")
+            logger.info(f"Metadata successfully loaded. Shape: {metadata_df.shape}")
+            logger.info(f"Metadata Columns: {list(metadata_df.columns)}")
+
+            return metadata_df
+
+        except Exception as e:
+            logger.error(f"Failed to parse metadata CSV at {self.metadata_path}: {str(e)}")
+            raise
+
+    def extract_all(self) -> Tuple[np.ndarray, np.ndarray, pd.DataFrame]:
+        """Convenience method to execute full raw data and metadata collection.
+
+        Returns:
+            Tuple[np.ndarray, np.ndarray, pd.DataFrame]:
+                - raw_data: Raw speed/volume matrix (T, N) or (T, N, F).
+                - raw_sensor_ids: Raw sensor ID list.
+                - raw_metadata_df: Raw Caltrans metadata DataFrame.
+        """
+        data_dict = self.load_raw_benchmark_data()
+        raw_metadata_df = self.load_raw_station_metadata()
+
+        return data_dict["data"], data_dict["sensor_ids"], raw_metadata_df
+
+
+def extract_raw_pems_data(data_path: str, metadata_path: str) -> Tuple[np.ndarray, np.ndarray, pd.DataFrame]:
+    """Top-level functional interface for raw extraction step.
+
+    Args:
+        data_path: Path to .npz or .h5 file.
+        metadata_path: Path to metadata .csv file.
+
+    Returns:
+        Tuple containing raw time series array, raw sensor IDs array, and raw metadata DataFrame.
+    """
+    extractor = PeMSExtractor(data_path=data_path, metadata_path=metadata_path)
+    return extractor.extract_all()
 # ================================
 
-# === Validation & Cleansing ===
+# === 2 (Validation & Cleansing) ===
 
 # ================================
 
