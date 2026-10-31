@@ -308,29 +308,34 @@ class TrafficTransformer:
 
     def map_and_enrich_metadata(self, sensor_ids: np.ndarray, metadata_df: Optional[pd.DataFrame] = None) \
             -> pd.DataFrame:
-        """Maps sensor IDs to positional indices (0..N-1) and creates a node metadata lookup table.
+        """Maps sensor IDs to positional indices (0..N-1) and enriches with Caltrans metadata."""
+        logger.info("Mapping sensor IDs to positional indices (0..N-1) and enriching metadata...")
 
-        Args:
-            sensor_ids: Array of N unique sensor IDs matching matrix columns.
-            metadata_df: Optional metadata DataFrame (ignored if not matching).
-
-        Returns:
-            pd.DataFrame: Node metadata table indexed from 0 to N-1.
-        """
-        logger.info("Mapping sensor IDs to positional indices (0..N-1)...")
         indexed_meta = []
 
+        # Ensure metadata_df is available for lookup
+        if metadata_df is not None and not metadata_df.empty:
+            # Create a dictionary lookup from station_id to metadata row
+            meta_dict = metadata_df.set_index("station_id").to_dict("index")
+        else:
+            meta_dict = {}
+
         for idx, sid in enumerate(sensor_ids):
+            # Fetch real metadata if it exists for this station ID
+            station_info = meta_dict.get(int(sid), {})
+
             indexed_meta.append({
                 "node_idx": idx,
-                "station_id": sid,
-                "fwy": 0,
-                "dir": "N/A",
-                "type": "ML"
+                "station_id": int(sid),
+                "fwy": station_info.get("fwy", 0),
+                "dir": station_info.get("dir", "N/A"),
+                "type": station_info.get("type", "ML"),
+                "latitude": station_info.get("latitude", 0.0),
+                "longitude": station_info.get("longitude", 0.0)
             })
 
         enriched_df = pd.DataFrame(indexed_meta)
-        logger.info(f"Enriched metadata created successfully for {len(enriched_df)} sensors.")
+        logger.info(f"Enriched metadata created successfully with real attributes for {len(enriched_df)} sensors.")
         return enriched_df
 
     def compute_haversine_distance(self, lat1: np.ndarray, lon1: np.ndarray, lat2: np.ndarray, lon2: np.ndarray) \
