@@ -145,7 +145,15 @@ def run_neuro_symbolic_pipeline():
         for res in query_spikes[:5]:
             print(f"  -> WARNING: Node {res['Node']:3d} at Step {res['Step']:2d} jumped by {res['Increase']:.1f} mph")
 
+    # Query 5: Free-Flow Traffic Nodes (>= 55 mph)
+    query_free_flow = list(prolog.query("is_free_flow(Node, Step, Speed)"))
+    print(f"\n[INFO] Free-Flow Traffic (>= 55 mph): {len(query_free_flow)} instances found.")
+    for res in query_free_flow[:5]:
+        print(
+            f"  -> Node {res['Node']:3d} | Step {res['Step']:2d} (+{res['Step'] * 5:2d}m) | Speed: {res['Speed']:.1f} mph")
+
     print("=" * 60)
+
 
     # --- EXPORT RECOMMENDATIONS FOR TEAM ARBITRATION (Aria's Arbiter Format) ---
     with open("bottleneck_alert_output.pl", "w") as f:
@@ -188,6 +196,14 @@ def run_neuro_symbolic_pipeline():
             increase = f"{res['Increase']:.1f}"
             f.write(
                 f"recommendation(bottleneck_alert, {node_id}, {start_idx + step}, neural_spike_jump({increase}), monitor, [unrealistic_speed_jump]).\n")
+
+            # Free-Flow -> Class: monitor (Optimal flow tracking)
+            for res in query_free_flow:
+                node_id = f"node_{res['Node']}"
+                step = res['Step']
+                speed = f"{res['Speed']:.1f}"
+                f.write(
+                    f"recommendation(bottleneck_alert, {node_id}, {start_idx + step}, optimal_flow({speed}), monitor, [is_free_flow]).\n")
 
     print("[*] Exported structured recommendation/6 facts for team_arbitration.pl")
 
