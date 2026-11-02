@@ -59,51 +59,39 @@ class SpatioTemporalBaseline(nn.Module):
         # Spatial Graph Convolution
         self.gcn = GraphConvolutionLayer(in_features=in_features, out_features=hidden_dim)
 
-        # Temporal Recurrent Unit (LSTM processes temporal sequence per node)
-        # Input dim per node after GCN is hidden_dim
+        # Temporal Recurrent Unit
         self.lstm = nn.LSTM(
             input_size=hidden_dim * num_nodes,
             hidden_size=hidden_dim,
             num_layers=2,
-            batch_first=True
+            batch_first=True,
+            dropout=0.0
         )
 
-        # Fully connected projection layer to map back to future horizon & features
-        self.fc = nn.Linear(hidden_dim, horizon * in_features)
+        # --- FIX: Map hidden_dim to horizon * num_nodes * in_features ---
+        self.fc = nn.Linear(hidden_dim, horizon * num_nodes * in_features)
 
     def forward(self, x: torch.Tensor, adj: torch.Tensor) -> torch.Tensor:
-        """Forward pass.
-
-        Args:
-            x: Input tensor of shape [Batch, History_Window, Nodes, Features] e.g., [32, 12, 358, 1]
-            adj: Adjacency matrix of shape [Nodes, Nodes] e.g., [358, 358]
-
-        Returns:
-            torch.Tensor: Predicted future tensor of shape [Batch, Horizon, Nodes, Features]
-        """
+        """Forward pass."""
         B, T, N, F = x.shape
 
         # 1. Spatial modeling via GCN applied across time steps
         gcn_out = self.gcn(x, adj)  # Shape: [B, T, N, hidden_dim]
 
         # 2. Flatten nodes and features for temporal LSTM processing
-        # Reshape to [B, T, N * hidden_dim]
         gcn_flat = gcn_out.reshape(B, T, N * gcn_out.shape[-1])
 
         # 3. Temporal modeling via LSTM
         lstm_out, _ = self.lstm(gcn_flat)  # Output shape: [B, T, hidden_dim]
 
-        # Take the final hidden state of the history window to forecast the horizon
+        # Take the final hidden state of the history window
         last_hidden_state = lstm_out[:, -1, :]  # Shape: [B, hidden_dim]
 
-        # 4. Project to future horizon
-        fc_out = self.fc(last_hidden_state)  # Shape: [B, horizon * F]
+        # 4. Project to future horizon for all nodes
+        fc_out = self.fc(last_hidden_state)  # Shape: [B, horizon * N * F]
 
-        # Reshape back to [Batch, Horizon, Nodes, Features]
-        # Note: Mapping vector to spatial dimensions for multi-node prediction
-        predictions = fc_out.reshape(B, self.horizon, 1, F)
-        # Expand across all nodes for baseline output structure matching [B, Horizon, N, F]
-        predictions = predictions.expand(B, self.horizon, N, F)
+        # --- FIX: Reshape directly into [Batch, Horizon, Nodes, Features] ---
+        predictions = fc_out.reshape(B, self.horizon, N, F)
 
         return predictions
 
@@ -120,3 +108,73 @@ if __name__ == "__main__":
     logger.info(f"Model Architecture Verification Successful!")
     logger.info(f"Input shape:  {dummy_x.shape}")
     logger.info(f"Output shape: {output.shape}")  # Expected: [4, 12, 358, 1]
+
+# ======= COMPARISON MODELS ========
+class PureLSTMModel(nn.Module):
+    """Temporal-only baseline: Ignores spatial graph structure entirely, using only LSTM."""
+
+    def __init__(self, num_nodes: int, in_features: int = 1, hidden_dim: int = 64, horizon: int = 12):
+        super(PureLSTMModel, self).__init__()
+        self.horizon = horizon
+        self.num_nodes = num_nodes
+
+        # Flatten spatial dimension into features for pure temporal LSTM
+        self.lstm = nn.LSTM(
+            input_size=num_nodes * in_features,
+            hidden_size=hidden_dim,
+            num_layers=2,
+            batch_first=True
+        )
+        self.fc = nn.Linear(hidden_dim, horizon * num_nodes * in_features)
+
+    def forward(self, x: torch.Tensor, adj: torch.Tensor = None) -> torch.Tensor:
+        B, T, N, F = x.shape
+        x_flat = x.reshape(B, T, N * F)
+        lstm_out, _ = self.lstm(x_flat)
+        last_hidden = lstm_out[:, -1, :]
+        fc_out = self.fc(last_hidden)
+        return fc_out.reshape(B, self.horizon, N, F)
+
+
+class PureGCNModel(nn.Module):
+    """Spatial-only baseline: Applies GCN on the latest time step, ignoring long-term recurrence."""
+
+    def __init__(self, num_nodes: int, in_features: int = 1, hidden_dim: int = 64, horizon: int = 12):
+        super(PureGCNModel, self).__init__()
+        self.horizon = horizon
+        self.num_nodes = num_nodes
+        self.gcn = GraphConvolutionLayer(in_features=in_features, out_features=hidden_dim)
+        # Map hidden dimension directly to horizon * features for all nodes
+        self.fc = nn.Linear(hidden_dim, horizon * in_features)
+
+    def forward(self, x: torch.Tensor, adj: torch.Tensor) -> torch.Tensor:
+        B, T, N, F = x.shape
+        # Take only the final time step of the history window -> [B, N, F]
+        latest_step = x[:, -1, :, :]
+
+        # Apply GCN -> [B, N, hidden_dim]
+        gcn_out = self.gcn(latest_step, adj)
+
+        # Project to horizon -> [B, N, horizon * F]
+        fc_out = self.fc(gcn_out)
+
+        # Reshape and permute correctly into [B, horizon, N, F]
+        predictions = fc_out.reshape(B, N, self.horizon, F).permute(0, 2, 1, 3)
+        return predictions
+
+
+class LinearBaseline(nn.Module):
+    """Simple Linear Regressor baseline mapping historical window directly to horizon."""
+
+    def __init__(self, num_nodes: int, in_features: int = 1, history_window: int = 12, horizon: int = 12):
+        super(LinearBaseline, self).__init__()
+        self.horizon = horizon
+        self.num_nodes = num_nodes
+        self.flatten_dim = history_window * num_nodes * in_features
+        self.fc = nn.Linear(self.flatten_dim, horizon * num_nodes * in_features)
+
+    def forward(self, x: torch.Tensor, adj: torch.Tensor = None) -> torch.Tensor:
+        B, T, N, F = x.shape
+        x_flat = x.reshape(B, -1)
+        out = self.fc(x_flat)
+        return out.reshape(B, self.horizon, N, F)

@@ -255,12 +255,10 @@ class TrafficDataValidator:
 
         # Handle multi-feature vs single-feature shapes
         if raw_data.ndim == 3:
-            # Shape is [T, N, F] (e.g., Feature 0 = Speed, Feature 1 = Flow)
+            # Shape is [T, N, F] (e.g., Feature 0 = Speed)
             speed_raw = raw_data[:, :, 0]
-            flow_raw = raw_data[:, :, 1] if raw_data.shape[-1] > 1 else None
         else:
             speed_raw = raw_data
-            flow_raw = None
 
         # Clean speed anomalies
         cleaned_speed = self.clean_speed_matrix(speed_raw)
@@ -269,12 +267,7 @@ class TrafficDataValidator:
         speed_df = pd.DataFrame(cleaned_speed, columns=sensor_ids)
         imputed_speed_df = self.impute_missing_values(speed_df)
 
-        if flow_raw is not None:
-            flow_df = pd.DataFrame(flow_raw, columns=sensor_ids)
-            imputed_flow_df = self.impute_missing_values(flow_df)
-            cleaned_data = np.stack([imputed_speed_df.values, imputed_flow_df.values], axis=-1)
-        else:
-            cleaned_data = imputed_speed_df.values
+        cleaned_data = imputed_speed_df.values
 
         # Filter metadata to drop orphan sensors not present in our data matrix
         valid_metadata = metadata_df[metadata_df["station_id"].isin(sensor_ids)].reset_index(drop=True)
@@ -306,6 +299,7 @@ class TrafficTransformer:
         self.mean_val: Optional[float] = None
         self.std_val: Optional[float] = None
 
+    # ************************ REMOVE ME (NO LONGER USING METADATA) ************************
     def map_and_enrich_metadata(self, sensor_ids: np.ndarray, metadata_df: Optional[pd.DataFrame] = None) \
             -> pd.DataFrame:
         """Maps sensor IDs to positional indices (0..N-1) and enriches with Caltrans metadata."""
@@ -409,26 +403,13 @@ class TrafficTransformer:
         stats = {"mean": self.mean_val, "std": self.std_val}
         return normalized_data.astype(np.float32), stats
 
-    def shape_to_3d_tensor(self, speed_data: np.ndarray, volume_data: Optional[np.ndarray] = None) \
-            -> np.ndarray:
-        """Restructures flat 2D time series into a 3D feature tensor of shape [T, N, F].
-
-        Args:
-            speed_data: Normalized speed matrix of shape (T, N).
-            volume_data: Optional normalized traffic volume matrix of shape (T, N).
-
-        Returns:
-            np.ndarray: Formatted 3D tensor of shape [T, N, F].
-        """
-        logger.info("Restructuring data matrices into 3D Tensor [T, N, F]...")
+    def shape_to_3d_tensor(self, speed_data: np.ndarray) -> np.ndarray:
+        """Restructures flat 2D time series into a 3D feature tensor of shape [T, N, 1]."""
+        logger.info("Restructuring data matrix into 3D Tensor [T, N, 1]...")
         T, N = speed_data.shape
+        tensor_3d = np.expand_dims(speed_data, axis=-1)
 
-        if volume_data is not None:
-            tensor_3d = np.stack([speed_data, volume_data], axis=-1)
-        else:
-            tensor_3d = np.expand_dims(speed_data, axis=-1)
-
-        logger.info(f"Tensor successfully shaped to [T={T}, N={N}, F={tensor_3d.shape[-1]}].")
+        logger.info(f"Tensor successfully shaped to [T={T}, N={N}, F=1].")
         return tensor_3d.astype(np.float32)
 # ================================
 # === Loading & Persistence ===
@@ -501,11 +482,10 @@ def run_complete_ingestion_pipeline(
     # Normalize features
     if cleaned_data.ndim == 3:
         speed_norm, _ = transformer.normalize_features(cleaned_data[:, :, 0])
-        flow_norm, _ = transformer.normalize_features(cleaned_data[:, :, 1])
-        x_tensor = transformer.shape_to_3d_tensor(speed_norm, flow_norm)
     else:
         speed_norm, _ = transformer.normalize_features(cleaned_data)
-        x_tensor = transformer.shape_to_3d_tensor(speed_norm)
+
+    x_tensor = transformer.shape_to_3d_tensor(speed_norm)
 
     # 4. Persistence
     persistor = TrafficDataPersistence(output_dir=output_dir)
