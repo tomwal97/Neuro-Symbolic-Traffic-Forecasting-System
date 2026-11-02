@@ -8,15 +8,25 @@ import torch
 import numpy as np
 from pyswip import Prolog
 import sys
+import json
 
 # Import your model definition
 from models import SpatioTemporalBaseline
 
 
-def denormalize_speed(normalized_speed, mean=60.0, std=12.0):
+def denormalize_speed(normalized_speed):
     """
-    Inverse Z-score transform to map normalized predictions back to real-world mph.
+    Inverse Z-score transform using exact persisted dataset statistics.
     """
+    stats_path = './processed_data/scaling_stats.json'
+    if os.path.exists(stats_path):
+        with open(stats_path, 'r') as f:
+            stats = json.load(f)
+        mean = stats["mean"]
+        std = stats["std"]
+    else:
+        mean, std = 60.0, 12.0  # Fallback defaults
+
     return (normalized_speed * std) + mean
 
 
@@ -45,7 +55,7 @@ def run_neuro_symbolic_pipeline():
     #sample_x = torch.tensor(raw_data[:12], dtype=torch.float32).unsqueeze(0).to(device) # uncomment for single 12 set time step
 
     # Instead of raw_data[:12], jump to a peak hour slice (e.g., index 5000)
-    start_idx = 12000
+    start_idx = 372
     sample_x = torch.tensor(raw_data[start_idx: start_idx + 12], dtype=torch.float32).unsqueeze(0).to(device)
 
     if sample_x.ndim == 3:
@@ -53,7 +63,6 @@ def run_neuro_symbolic_pipeline():
 
 
     # 3. Generate Neural Predictions
-
     with torch.no_grad():
         preds = model(sample_x, adj)  # Output shape: [1, 12, 358, 1]
 
@@ -63,10 +72,10 @@ def run_neuro_symbolic_pipeline():
 
     # --- TEMPORARY DEMO INJECTION: Simulate a sudden crash at Node 12 ---
     # This forces a severe drop so you can see Prolog catch congestions & spillbacks
-    speeds_mph[5, 12] = 22.5  # Step 5 at Node 12 drops to severe congestion (22.5 mph)
-    speeds_mph[6, 15] = 28.0  # Step 6 at Downstream Node 15 experiences spillback
-    speeds_mph[1, 5] = 65.0
-    speeds_mph[2, 5] = 35.0  # Sudden 30 mph drop (Shockwave test)
+    #speeds_mph[5, 12] = 22.5  # Step 5 at Node 12 drops to severe congestion (22.5 mph)
+    #speeds_mph[6, 15] = 28.0  # Step 6 at Downstream Node 15 experiences spillback
+    #speeds_mph[1, 5] = 65.0
+    #speeds_mph[2, 5] = 35.0  # Sudden 30 mph drop (Shockwave test)
 
     print(f"[*] Generated 12-step predictions across 358 nodes.")
     print(f"    Speed Range: Min = {speeds_mph.min():.2f} mph | Max = {speeds_mph.max():.2f} mph\n")
@@ -86,8 +95,9 @@ def run_neuro_symbolic_pipeline():
             val = float(speeds_mph[step, node])
             prolog.assertz(f"predicted_speed({node}, {step + 1}, {val:.2f})")
 
-    # --- TEMPORARY DEMO INJECTION: Force a connection between Node 12 and Node 15 ---
-    prolog.assertz("connected(12, 15)")
+    # --- TEMPORARY DEMO INJECTION: Force a connection between Node 12 and Node 15 --- Apart of the above forced crash simulation to force the alert to fire!
+    #prolog.assertz("connected(12, 15)")
+
     # 6. Populate Prolog Database with Spatial Graph Edges (Adjacency Matrix A)
     epsilon = 0.1
     edge_count = 0

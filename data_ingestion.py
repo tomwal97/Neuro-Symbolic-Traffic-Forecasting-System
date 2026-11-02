@@ -13,6 +13,7 @@ import h5py
 import logging
 import os
 from typing import Tuple, Dict, Optional
+import json
 # ================================
 
 # === Device Selection (Handles different OS of team members) ===
@@ -439,16 +440,21 @@ class TrafficDataPersistence:
         x_path = os.path.join(self.output_dir, "X_tensor.npy")
         a_path = os.path.join(self.output_dir, "A_matrix.npy")
         meta_path = os.path.join(self.output_dir, "enriched_metadata.csv")
+        stats_path = os.path.join(self.output_dir, "scaling_stats.json")
 
         np.save(x_path, x_tensor)
         np.save(a_path, a_matrix)
         metadata_df.to_csv(meta_path, index=False)
 
-        logger.info("Artifact persistence complete.")
+        with open(stats_path, "w") as f:
+            json.dump(stats, f)
+
+        logger.info(f"Artifact persistence complete, including scaling stats: {stats}")
         return {
             "x_tensor_path": x_path,
             "a_matrix_path": a_path,
-            "metadata_path": meta_path
+            "metadata_path": meta_path,
+            "stats_path": stats_path
         }
 
 
@@ -486,6 +492,18 @@ def run_complete_ingestion_pipeline(
         speed_norm, _ = transformer.normalize_features(cleaned_data)
 
     x_tensor = transformer.shape_to_3d_tensor(speed_norm)
+
+    # Normalize features
+    if cleaned_data.ndim == 3:
+        speed_norm, stats = transformer.normalize_features(cleaned_data[:, :, 0])
+    else:
+        speed_norm, stats = transformer.normalize_features(cleaned_data)
+
+    x_tensor = transformer.shape_to_3d_tensor(speed_norm)
+
+    # 4. Persistence
+    persistor = TrafficDataPersistence(output_dir=output_dir)
+    persistor.save_processed_artifacts(x_tensor, a_matrix, enriched_meta, stats)
 
     # 4. Persistence
     persistor = TrafficDataPersistence(output_dir=output_dir)

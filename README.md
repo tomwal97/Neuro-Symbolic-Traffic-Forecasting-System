@@ -18,7 +18,6 @@ This repository contains the complete implementation for the **Neuro-Symbolic Tr
 
 ---
 
-
 ## Installation & Setup Guide
 
 Follow these step-by-step instructions to clone the repository, install system dependencies, and set up your local environment.
@@ -35,6 +34,8 @@ The symbolic reasoning engine relies on SWI-Prolog being available in your syste
   ```bash
   brew install swi-prolog
 
+  ```
+
 ## Repository Structure
 ```text
 NeuroSymbolicTrafficForecasting/
@@ -47,5 +48,11 @@ NeuroSymbolicTrafficForecasting/
 ├── processed_data/            # Processed PeMS03 tensors (X_tensor.npy, A_matrix.npy)
 ├── requirements.txt           # Pinned python package dependencies
 └── README.md                  # Project documentation
+```
 
+### Interactive Inference CLI Demonstration
+To test the neuro-symbolic pipeline interactively and query specific peak-hour indices (such as index 372 for the 7:00 AM morning rush), execute the interactive CLI script:
 
+```bash
+python interactive_demo.py
+```

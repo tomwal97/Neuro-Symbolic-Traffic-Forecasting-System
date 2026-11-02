@@ -4,11 +4,12 @@ import argparse
 import os
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
-from torch.nn.functional import dropout
 from torch.utils.data import DataLoader
 import logging
 import matplotlib.pyplot as plt
+from sklearn.metrics import r2_score
 
 from dataset import PeMSDataset
 from models import PureLSTMModel, PureGCNModel, LinearBaseline, SpatioTemporalBaseline
@@ -28,7 +29,7 @@ def plot_losses(train_losses: list, val_losses: list, save_path: str = "./checkp
 
     plt.title("Spatio-Temporal GCN-LSTM Training Convergence", fontsize=12, fontweight="bold")
     plt.xlabel("Epochs", fontsize=10)
-    plt.ylabel("Mean Squared Error (MSE)", fontsize=10)
+    plt.ylabel("Mean Absolute Error (MAE)", fontsize=10)
     plt.legend(fontsize=10)
     plt.grid(True, linestyle="--", alpha=0.6)
     plt.tight_layout()
@@ -36,6 +37,35 @@ def plot_losses(train_losses: list, val_losses: list, save_path: str = "./checkp
     plt.savefig(save_path, dpi=300)
     logger.info(f"Loss convergence plot saved successfully to {save_path}")
     plt.close()
+
+
+def evaluate_metrics(model, data_loader, adj_matrix, device):
+    """Computes comprehensive regression evaluation metrics (RMSE, MAE, MSE, R^2) over a dataloader."""
+    model.eval()
+    all_preds = []
+    all_targets = []
+
+    with torch.no_grad():
+        for batch_x, batch_y in data_loader:
+            batch_x = batch_x.to(device)
+            batch_y = batch_y.to(device)
+
+            preds = model(batch_x, adj_matrix)
+            all_preds.append(preds.detach().cpu())
+            all_targets.append(batch_y.detach().cpu())
+
+    preds_tensor = torch.cat(all_preds, dim=0)
+    targets_tensor = torch.cat(all_targets, dim=0)
+
+    # Compute metrics
+    mse = F.mse_loss(preds_tensor, targets_tensor).item()
+    rmse = torch.sqrt(F.mse_loss(preds_tensor, targets_tensor)).item()
+    mae = F.l1_loss(preds_tensor, targets_tensor).item()
+
+    # Flatten across nodes and time horizons for global R^2 score
+    r2 = r2_score(targets_tensor.numpy().flatten(), preds_tensor.numpy().flatten())
+
+    return {"MSE": mse, "RMSE": rmse, "MAE": mae, "R2": r2}
 
 
 def train_model(
@@ -48,7 +78,6 @@ def train_model(
     """Executes the training and validation loop for the traffic forecasting model."""
     os.makedirs(save_dir, exist_ok=True)
 
-    # 1. Device Selection (Handles Mac MPS, CUDA, or CPU)
     device = torch.device(
         "cuda" if torch.cuda.is_available()
         else "mps" if torch.backends.mps.is_available()
@@ -56,7 +85,6 @@ def train_model(
     )
     logger.info(f"Using device: {device}")
 
-    # 2. Load Datasets and DataLoaders
     logger.info("Initializing datasets...")
     train_dataset = PeMSDataset(processed_dir="./processed_data", history_window=12, horizon=12, mode="train")
     val_dataset = PeMSDataset(processed_dir="./processed_data", history_window=12, horizon=12, mode="val")
@@ -64,11 +92,9 @@ def train_model(
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
 
-    # Fetch Adjacency Matrix and move to device
     adj_matrix = train_dataset.get_adjacency_matrix().to(device)
     num_nodes = adj_matrix.shape[0]
 
-    # 3. Initialize Model, Loss, and Optimizer
     model = SpatioTemporalBaseline(
         num_nodes=num_nodes,
         in_features=1,
@@ -83,12 +109,9 @@ def train_model(
     )
 
     best_val_loss = float("inf")
-
-    # Trackers for plotting
     history_train_losses = []
     history_val_losses = []
 
-    # 4. Training Loop
     logger.info(f"Starting training for {epochs} epochs...")
     for epoch in range(epochs):
         model.train()
@@ -99,14 +122,8 @@ def train_model(
             batch_y = batch_y.to(device)
 
             optimizer.zero_grad()
-
-            # Forward pass
             predictions = model(batch_x, adj_matrix)
-
-            # Compute loss
             loss = criterion(predictions, batch_y)
-
-            # Backward pass & optimize
             loss.backward()
             optimizer.step()
 
@@ -114,7 +131,6 @@ def train_model(
 
         epoch_train_loss = train_loss / len(train_dataset)
 
-        # 5. Validation Loop
         model.eval()
         val_loss = 0.0
         with torch.no_grad():
@@ -127,18 +143,14 @@ def train_model(
                 val_loss += v_loss.item() * val_x.size(0)
 
         epoch_val_loss = val_loss / len(val_dataset)
-
-        # Inside your training epoch loop (after computing epoch_val_loss):
         scheduler.step(epoch_val_loss)
 
-        # Record history
         history_train_losses.append(epoch_train_loss)
         history_val_losses.append(epoch_val_loss)
 
         logger.info(
             f"Epoch [{epoch + 1}/{epochs}] | Train Loss: {epoch_train_loss:.4f} | Val Loss: {epoch_val_loss:.4f}")
 
-        # Save best checkpoint
         if epoch_val_loss < best_val_loss:
             best_val_loss = epoch_val_loss
             ckpt_path = os.path.join(save_dir, "best_baseline_model.pth")
@@ -146,13 +158,12 @@ def train_model(
             logger.info(f"--> Saved new best model checkpoint to {ckpt_path}")
 
     logger.info("Training pipeline completed successfully!")
-
-    # 6. Generate and save loss curve plot
     plot_path = os.path.join(save_dir, "training_loss_curve.png")
     plot_losses(history_train_losses, history_val_losses, save_path=plot_path)
 
+
 def run_model_comparison(epochs: int = 10, batch_size: int = 64, lr: float = 0.001, hidden_dim: int = 64):
-    """Trains and evaluates multiple models, saving individual plots and printing a summary table."""
+    """Trains and evaluates multiple models, computing full regression metrics and printing a summary table."""
     device = torch.device(
         "cuda" if torch.cuda.is_available()
         else "mps" if torch.backends.mps.is_available()
@@ -160,7 +171,6 @@ def run_model_comparison(epochs: int = 10, batch_size: int = 64, lr: float = 0.0
     )
     logger.info(f"[*] Starting Multi-Model Comparison on device: {device}")
 
-    # Load Data
     train_dataset = PeMSDataset(processed_dir="./processed_data", history_window=12, horizon=12, mode="train")
     val_dataset = PeMSDataset(processed_dir="./processed_data", history_window=12, horizon=12, mode="val")
 
@@ -170,10 +180,9 @@ def run_model_comparison(epochs: int = 10, batch_size: int = 64, lr: float = 0.0
     adj_matrix = train_dataset.get_adjacency_matrix().to(device)
     num_nodes = adj_matrix.shape[0]
 
-    # Define model registry to compare
     models_to_test = {
-        #"Spatio-Temporal GCN-LSTM (Chosen Model)": SpatioTemporalBaseline(num_nodes=num_nodes, in_features=1, hidden_dim=hidden_dim, horizon=12),
-        "Pure LSTM (No Spatial Graph)": PureLSTMModel(num_nodes=num_nodes, in_features=1, hidden_dim=hidden_dim, horizon=12),
+        # "Spatio-Temporal GCN-LSTM": SpatioTemporalBaseline(num_nodes=num_nodes, in_features=1, hidden_dim=hidden_dim,horizon=12),
+        "Pure LSTM (No Spatial)": PureLSTMModel(num_nodes=num_nodes, in_features=1, hidden_dim=hidden_dim, horizon=12),
         "Pure GCN (No Recurrence)": PureGCNModel(num_nodes=num_nodes, in_features=1, hidden_dim=hidden_dim, horizon=12),
         "Linear Regressor Baseline": LinearBaseline(num_nodes=num_nodes, in_features=1, history_window=12, horizon=12)
     }
@@ -181,16 +190,12 @@ def run_model_comparison(epochs: int = 10, batch_size: int = 64, lr: float = 0.0
     results_summary = []
     criterion = nn.L1Loss()
 
-    os.path.dirname("./checkpoints/")
-
-    # Python dict iteration syntax
     for name, model in models_to_test.items():
         logger.info(f"\n================ Training Model: {name} ================")
         model = model.to(device)
         optimizer = optim.Adam(model.parameters(), lr=lr)
 
         train_losses, val_losses = [], []
-        best_val_loss = float("inf")
         start_time = time.time()
 
         for epoch in range(epochs):
@@ -220,42 +225,40 @@ def run_model_comparison(epochs: int = 10, batch_size: int = 64, lr: float = 0.0
             train_losses.append(epoch_train_loss)
             val_losses.append(epoch_val_loss)
 
-            if epoch_val_loss < best_val_loss:
-                best_val_loss = epoch_val_loss
-
             logger.info(
                 f"[{name}] Epoch {epoch + 1}/{epochs} | Train Loss: {epoch_train_loss:.4f} | Val Loss: {epoch_val_loss:.4f}")
 
         elapsed_time = time.time() - start_time
 
+        # Compute comprehensive evaluation metrics on validation set
+        metrics = evaluate_metrics(model, val_loader, adj_matrix, device)
+
         # Save individual loss curve plot
-        safe_name = name.lower().replace(" ", "_").replace("(", "").replace(")", "")
+        safe_name = name.lower().replace(" ", "_").replace("(", "").replace(")", "").replace("-", "_")
         plot_losses(train_losses, val_losses, save_path=f"./checkpoints/loss_curve_{safe_name}.png")
 
         results_summary.append({
             "Model": name,
-            "Best Val Loss": best_val_loss,
-            "Final Train Loss": train_losses[-1],
+            "RMSE": metrics["RMSE"],
+            "MAE": metrics["MAE"],
+            "MSE": metrics["MSE"],
+            "R2": metrics["R2"],
             "Training Time (s)": elapsed_time
         })
 
-    print("======================================================================")
+    # Print Expanded Model Comparison Summary Table
+    print("=" * 88)
     print("                 MODEL COMPARISON EVALUATION SUMMARY                  ")
-    print("======================================================================")
-    print(f"{'Model Architecture':<30} | {'Best Val Loss':<15} | {'Final Train Loss':<16} | {'Time (s)':<10}")
-    print("-" * 75)
+    print("=" * 88)
+    print(f"{'Model Architecture':<28} | {'RMSE':<8} | {'MAE':<8} | {'MSE':<8} | {'R^2':<6} | {'Time (s)':<8}")
+    print("-" * 88)
 
     for res in results_summary:
-        # Gracefully handle varying key names for time
-        train_time = res.get('Time (s)', res.get('Time', res.get('Train Time', 0.0)))
+        train_time = res.get('Training Time (s)', 0.0)
         print(
-            f"{res['Model']:<30} | {res['Best Val Loss']:<15.4f} | {res['Final Train Loss']:<16.4f} | {train_time:<10.1f}")
-    print("======================================================================")
-    print("=" * 70)
+            f"{res['Model']:<28} | {res['RMSE']:<8.4f} | {res['MAE']:<8.4f} | {res['MSE']:<8.4f} | {res['R2']:<6.4f} | {train_time:<8.1f}")
+    print("=" * 88)
 
 
 if __name__ == "__main__":
-    # train_model(epochs=50, batch_size=64, lr=0.001, hidden_dim=128)
-    # comparisoon run
     run_model_comparison(epochs=50, batch_size=64, lr=0.001, hidden_dim=128)
-
