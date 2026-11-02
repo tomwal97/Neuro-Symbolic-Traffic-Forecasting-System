@@ -18,6 +18,23 @@ This repository contains the complete implementation for the **Neuro-Symbolic Tr
 
 ---
 
+
+## Installation & Setup Guide
+
+Follow these step-by-step instructions to clone the repository, install system dependencies, and set up your local environment.
+
+### 1. Prerequisites
+Ensure your system has the following installed:
+* **Python 3.10 or 3.11** (64-bit)
+* **SWI-Prolog** (Required for the `pyswip` bridge to execute symbolic reasoning rules)
+* Check requirements.txt for other dependencies.
+
+#### Installing System Dependencies (SWI-Prolog)
+The symbolic reasoning engine relies on SWI-Prolog being available in your system's `PATH`:
+* **macOS (Homebrew):**
+  ```bash
+  brew install swi-prolog
+
 ## Repository Structure
 ```text
 NeuroSymbolicTrafficForecasting/
@@ -30,3 +47,5 @@ NeuroSymbolicTrafficForecasting/
 ├── processed_data/            # Processed PeMS03 tensors (X_tensor.npy, A_matrix.npy)
 ├── requirements.txt           # Pinned python package dependencies
 └── README.md                  # Project documentation
+
+
