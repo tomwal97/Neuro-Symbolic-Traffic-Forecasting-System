@@ -1,6 +1,6 @@
 # Neuro-Symbolic Traffic Forecasting
 
-**Authors:** Thomas William Wallace & Project Team  
+**Authors:** Thomas Wallace & Aria Farahani
 **Repository:** NeuroSymbolicTrafficForecasting  
 **File:** `README.md`
 
