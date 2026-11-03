@@ -35,7 +35,7 @@ def run_neuro_symbolic_pipeline():
     print(f"[*] Running Neuro-Symbolic Pipeline on device: {device}")
 
     # 1. Load Model and Weights
-    model = SpatioTemporalBaseline(num_nodes=358, in_features=1, hidden_dim=128, horizon=12).to(device)
+    model = SpatioTemporalBaseline(num_nodes=358, in_features=1, hidden_dim=64, horizon=12).to(device)
     checkpoint_path = './checkpoints/best_baseline_model.pth'
     model.load_state_dict(torch.load(checkpoint_path, map_location=device))
     model.eval()
@@ -55,7 +55,7 @@ def run_neuro_symbolic_pipeline():
     #sample_x = torch.tensor(raw_data[:12], dtype=torch.float32).unsqueeze(0).to(device) # uncomment for single 12 set time step
 
     # Instead of raw_data[:12], jump to a peak hour slice (e.g., index 5000)
-    start_idx = 372
+    start_idx = 6000
     sample_x = torch.tensor(raw_data[start_idx: start_idx + 12], dtype=torch.float32).unsqueeze(0).to(device)
 
     if sample_x.ndim == 3:

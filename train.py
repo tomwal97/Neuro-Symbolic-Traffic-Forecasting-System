@@ -204,7 +204,7 @@ def run_model_comparison(epochs: int = 10, batch_size: int = 64, lr: float = 0.0
     for name, model in models_to_test.items():
         logger.info(f"\n================ Training Model: {name} ================")
         model = model.to(device)
-        optimizer = optim.Adam(model.parameters(), lr=lr)
+        optimizer = optim.AdamW(model.parameters(), lr=lr)
 
         train_losses, val_losses = [], []
         start_time = time.time()
@@ -273,4 +273,5 @@ def run_model_comparison(epochs: int = 10, batch_size: int = 64, lr: float = 0.0
 
 if __name__ == "__main__":
     set_seed(42)
-    run_model_comparison(epochs=50, batch_size=64, lr=0.001, hidden_dim=64)
+    #run_model_comparison(epochs=50, batch_size=32, lr=0.001, hidden_dim=64)
+    train_model(epochs=50, batch_size=32, lr=0.001, hidden_dim=64)
