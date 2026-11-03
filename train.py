@@ -14,10 +14,21 @@ from sklearn.metrics import r2_score
 from dataset import PeMSDataset
 from models import PureLSTMModel, PureGCNModel, LinearBaseline, SpatioTemporalBaseline
 import time
+import random
+import numpy as np
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
+def set_seed(seed_val=42):
+    random.seed(seed_val)
+    np.random.seed(seed_val)
+    torch.manual_seed(seed_val)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed_val)
+    # Optional: ensure deterministic behavior in CuDNN (might slow down training slightly)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
 def plot_losses(train_losses: list, val_losses: list, save_path: str = "./checkpoints/loss_curve.png"):
     """Generates and saves a clean loss convergence plot."""
@@ -72,7 +83,7 @@ def train_model(
         epochs: int = 10,
         batch_size: int = 32,
         lr: float = 0.001,
-        hidden_dim: int = 32,
+        hidden_dim: int = 128,
         save_dir: str = "./checkpoints"
 ):
     """Executes the training and validation loop for the traffic forecasting model."""
@@ -261,4 +272,5 @@ def run_model_comparison(epochs: int = 10, batch_size: int = 64, lr: float = 0.0
 
 
 if __name__ == "__main__":
-    run_model_comparison(epochs=50, batch_size=64, lr=0.001, hidden_dim=128)
+    set_seed(42)
+    run_model_comparison(epochs=50, batch_size=64, lr=0.001, hidden_dim=64)
