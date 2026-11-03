@@ -181,7 +181,7 @@ def run_model_comparison(epochs: int = 10, batch_size: int = 64, lr: float = 0.0
     num_nodes = adj_matrix.shape[0]
 
     models_to_test = {
-        # "Spatio-Temporal GCN-LSTM": SpatioTemporalBaseline(num_nodes=num_nodes, in_features=1, hidden_dim=hidden_dim,horizon=12),
+        "Spatio-Temporal GCN-LSTM": SpatioTemporalBaseline(num_nodes=num_nodes, in_features=1, hidden_dim=hidden_dim,horizon=12),
         "Pure LSTM (No Spatial)": PureLSTMModel(num_nodes=num_nodes, in_features=1, hidden_dim=hidden_dim, horizon=12),
         "Pure GCN (No Recurrence)": PureGCNModel(num_nodes=num_nodes, in_features=1, hidden_dim=hidden_dim, horizon=12),
         "Linear Regressor Baseline": LinearBaseline(num_nodes=num_nodes, in_features=1, history_window=12, horizon=12)
