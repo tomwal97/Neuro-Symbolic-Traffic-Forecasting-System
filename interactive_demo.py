@@ -36,7 +36,7 @@ def load_inference_engine():
     num_nodes = adj_matrix.shape[0]
 
     # Load trained model checkpoint
-    model = SpatioTemporalBaseline(num_nodes=num_nodes, in_features=1, hidden_dim=128, horizon=12).to(device)
+    model = SpatioTemporalBaseline(num_nodes=num_nodes, in_features=1, hidden_dim=64, horizon=12).to(device)
     ckpt_path = "./checkpoints/best_baseline_model.pth"
 
     if os.path.exists(ckpt_path):
